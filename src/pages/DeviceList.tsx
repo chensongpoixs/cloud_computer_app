@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Card, List, Tag, Button, Input, Select, Empty, Spin, message, Switch, Modal, Form, Popconfirm } from 'antd';
-import { DesktopOutlined, SearchOutlined, ReloadOutlined, CheckCircleOutlined, PlusOutlined, LockOutlined, DeleteOutlined } from '@ant-design/icons';
+import { DesktopOutlined, ReloadOutlined, CheckCircleOutlined, PlusOutlined, LockOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { deviceApi, userDeviceApi } from '@/utils/api';
 import { Device } from '@/types';
 import dayjs from 'dayjs';
 
-const { Search } = Input;
 const { Option } = Select;
 
 export default function DeviceList() {
@@ -111,7 +110,11 @@ export default function DeviceList() {
   };
 
   const handleDeviceClick = (device: Device) => {
-    navigate(`/devices/${device.id}`);
+    if (!device.id) {
+      message.error('缺少设备 ID，无法进入播放页面。');
+      return;
+    }
+    navigate(`/devices/${device.id}/play`, { state: { device } });
   };
 
   const handleAddDevice = () => {

@@ -46,6 +46,28 @@ npm run dev
 
 开发服务器将在 `http://localhost:3001` 启动。
 
+### 启用 HTTPS（可选）
+
+项目提供 `config/devServer.config.json` 以控制本地开发服务器的 Host、Port 以及 HTTPS 证书信息。示例配置：
+
+```json
+{
+  "host": "localhost",
+  "port": 3001,
+  "open": true,
+  "https": {
+    "enable": true,
+    "keyPath": "./certs/dev-key.pem",
+    "certPath": "./certs/dev-cert.pem",
+    "caPath": ""
+  }
+}
+```
+
+1. 将自签名或有效证书放在 `config` 目录外（例如 `certs/`）。
+2. 设置 `enable: true`，并填写对应的 `keyPath` / `certPath`（支持相对路径）。
+3. 执行 `npm run dev` 时，Vite 会自动按配置启用 HTTPS；若证书路径缺失会回退到 HTTP 并给出提示。
+
 ### 构建生产版本
 
 ```bash

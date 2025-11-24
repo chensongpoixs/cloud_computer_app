@@ -7,7 +7,9 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import DeviceList from '@/pages/DeviceList';
 import DeviceDetail from '@/pages/DeviceDetail';
+import DevicePlayer from '@/pages/DevicePlayer';
 import Profile from '@/pages/Profile';
+import Home from '@/pages/Home';
 
 const { defaultAlgorithm } = theme;
 
@@ -85,21 +87,24 @@ function App() {
     >
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+
           <Route
-            path="/"
             element={
               <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/devices" replace />} />
-            <Route path="devices" element={<DeviceList />} />
-            <Route path="devices/:id" element={<DeviceDetail />} />
-            <Route path="profile" element={<Profile />} />
+            <Route path="/devices" element={<DeviceList />} />
+            <Route path="/devices/:id" element={<DeviceDetail />} />
+            <Route path="/devices/:id/play" element={<DevicePlayer />} />
+            <Route path="/profile" element={<Profile />} />
           </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </ConfigProvider>
