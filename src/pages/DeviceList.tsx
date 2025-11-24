@@ -25,36 +25,74 @@ export default function DeviceList() {
   const loadDevices = async () => {
     setLoading(true);
     try {
+      console.log('========== 开始请求设备列表 ==========');
+      console.log('请求参数:', {
+        page,
+        pageSize,
+        status: statusFilter || undefined,
+        my_devices_only: myDevicesOnly,
+      });
+      
       const response = await deviceApi.getDevices({
         page,
         pageSize,
         status: statusFilter || undefined,
         my_devices_only: myDevicesOnly,
       });
+      
+      console.log('设备列表接口响应:', response);
+      
       if (response && response.code === 200) {
         const deviceList = response.list || [];
-        // 调试：打印设备数据，检查 userDeviceId
-        console.log('设备列表数据:', deviceList);
-        if (deviceList.length > 0) {
-          console.log('第一个设备数据:', deviceList[0]);
-          console.log('第一个设备的 isAssociated:', deviceList[0].isAssociated);
-          console.log('第一个设备的 userDeviceId:', deviceList[0].userDeviceId);
-        }
+        console.log('========== 设备列表详情信息 ==========');
+        console.log(`设备总数: ${deviceList.length}`);
+        console.log(`总记录数: ${response.total || 0}`);
+        
+        // 打印每个设备的详细信息
+        deviceList.forEach((device: Device, index: number) => {
+          console.log(`\n--- 设备 ${index + 1} ---`);
+          console.log('设备ID:', device.id);
+          console.log('设备名称:', device.name);
+          console.log('设备唯一ID (device_id):', device.device_id);
+          console.log('IP地址:', device.ip);
+          console.log('MAC地址:', device.mac);
+          console.log('设备状态:', device.status);
+          console.log('CPU信息:', device.cpu);
+          console.log('内存信息:', device.memory);
+          console.log('硬盘信息:', device.disk);
+          console.log('操作系统:', device.os);
+          console.log('是否已关联 (isAssociated):', device.isAssociated, typeof device.isAssociated);
+          console.log('是否已登录 (isLoggedIn):', device.isLoggedIn, typeof device.isLoggedIn);
+          console.log('用户设备关联ID (userDeviceId):', device.userDeviceId, typeof device.userDeviceId);
+          console.log('创建时间:', device.createdAt);
+          console.log('更新时间:', device.updatedAt);
+          console.log('完整设备对象:', device);
+        });
+        
+        console.log('=====================================');
+        
         setDevices(deviceList);
         setTotal(response.total || 0);
       } else {
+        console.error('获取设备列表失败:', response);
         message.error(response?.message || '获取设备列表失败');
         setDevices([]);
         setTotal(0);
       }
     } catch (error: any) {
-      console.error('加载设备列表错误:', error);
+      console.error('========== 加载设备列表错误 ==========');
+      console.error('错误对象:', error);
+      console.error('错误消息:', error?.message);
+      console.error('响应数据:', error?.response?.data);
+      console.error('响应状态:', error?.response?.status);
+      console.error('=====================================');
       const errorMessage = error?.response?.data?.message || error?.message || '加载设备列表失败，请检查网络连接';
       message.error(errorMessage);
       setDevices([]);
       setTotal(0);
     } finally {
       setLoading(false);
+      console.log('设备列表加载完成');
     }
   };
 
@@ -116,12 +154,42 @@ export default function DeviceList() {
 
   const handleUnassociateDevice = async (device: Device, e: React.MouseEvent) => {
     e.stopPropagation(); // 阻止点击事件冒泡到卡片
-    if (!device.userDeviceId) {
-      message.error('无法获取关联ID');
+    
+    // 打印删除设备详情信息
+    console.log('========== 删除设备详情信息 ==========');
+    console.log('设备对象 (device):', device);
+    console.log('设备ID:', device.id);
+    console.log('设备名称:', device.name);
+    console.log('设备唯一ID (device_id):', device.device_id);
+    console.log('是否已关联 (isAssociated):', device.isAssociated);
+    console.log('用户设备关联ID (userDeviceId):', device.userDeviceId);
+    console.log('是否已登录 (isLoggedIn):', device.isLoggedIn);
+    console.log('设备状态:', device.status);
+    console.log('=====================================');
+    
+    // 检查设备是否已关联（处理 undefined、null、false 等情况）
+    const isAssociated = device.isAssociated === true;
+    const hasUserDeviceId = device.userDeviceId !== undefined && device.userDeviceId !== null && device.userDeviceId !== '';
+    
+    if (!isAssociated || !hasUserDeviceId) {
+      console.warn('设备未关联，无法删除:', {
+        isAssociated: device.isAssociated,
+        userDeviceId: device.userDeviceId,
+        isAssociatedCheck: isAssociated,
+        hasUserDeviceIdCheck: hasUserDeviceId
+      });
+      message.warning('该设备未关联，无需删除');
       return;
     }
+    
     try {
-      const response = await userDeviceApi.unassociateDevice(device.userDeviceId);
+      // 确保 userDeviceId 是字符串类型
+      const userDeviceId = String(device.userDeviceId);
+      console.log('开始调用后台接口删除关联关系，userDeviceId:', userDeviceId);
+      // 调用后台接口删除用户与设备的关联关系
+      const response = await userDeviceApi.unassociateDevice(userDeviceId);
+      console.log('删除关联接口响应:', response);
+      
       if (response && response.code === 0) {
         message.success(response.message || '删除关联成功');
         loadDevices(); // 刷新设备列表
@@ -231,30 +299,31 @@ export default function DeviceList() {
                         </Tag>
                       )}
                     </div>
-                    {device.isAssociated && (
-                      <Popconfirm
-                        title="确定要删除此设备的关联吗？"
-                        description="删除后需要重新输入设备ID和密码才能添加"
-                        onConfirm={(e) => handleUnassociateDevice(device, e as any)}
-                        onCancel={(e) => e?.stopPropagation()}
-                        okText="确定"
-                        cancelText="取消"
-                        disabled={!device.userDeviceId}
+                    <Popconfirm
+                      title="确定要删除关联设备吗？"
+                      description="删除关联后，需要重新输入设备ID和密码才能添加该设备"
+                      onConfirm={(e) => handleUnassociateDevice(device, e as any)}
+                      onCancel={(e) => e?.stopPropagation()}
+                      okText="确定"
+                      cancelText="取消"
+                    >
+                      <Button
+                        type="primary"
+                        danger
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ 
+                          marginLeft: 'auto',
+                          backgroundColor: '#ff4d4f',
+                          borderColor: '#ff4d4f',
+                          color: '#fff'
+                        }}
+                        title="删除关联设备"
                       >
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{ marginLeft: 'auto' }}
-                          disabled={!device.userDeviceId}
-                          title={!device.userDeviceId ? '无法获取关联ID' : '删除关联'}
-                        >
-                          删除关联
-                        </Button>
-                      </Popconfirm>
-                    )}
+                        删除
+                      </Button>
+                    </Popconfirm>
                   </div>
 
                   <div style={{ fontSize: 13, color: '#666', lineHeight: 1.8 }}>
