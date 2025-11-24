@@ -25,6 +25,24 @@ export default function DevicePlayer() {
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const statsIntervalRef = useRef<number | null>(null);
+  const previousVideoStatsRef = useRef<{
+    timestamp: number;
+    bytesReceived: number;
+  } | null>(null);
+  const [networkStats, setNetworkStats] = useState<{
+    packetsLost: number;
+    packetsReceived: number;
+    packetLossRate: number;
+    bitrateKbps: number;
+    framesPerSecond: number;
+  }>({
+    packetsLost: 0,
+    packetsReceived: 0,
+    packetLossRate: 0,
+    bitrateKbps: 0,
+    framesPerSecond: 0,
+  });
 
   const cleanup = () => {
     if (peerConnectionRef.current) {
@@ -51,6 +69,12 @@ export default function DevicePlayer() {
       stream?.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
+
+    if (statsIntervalRef.current) {
+      window.clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
+    }
+    previousVideoStatsRef.current = null;
   };
 
   useEffect(() => {
@@ -90,16 +114,138 @@ export default function DevicePlayer() {
     }
   }, []);
 
-  const sendInputMessage = useCallback((payload: Record<string, any>) => {
+  const MessageType = useRef({
+    IFrameRequest: 0,
+    RequestQualityControl: 1,
+    MaxFpsRequest: 2,
+    AverageBitrateRequest: 3,
+    StartStreaming: 4,
+    StopStreaming: 5,
+    LatencyTest: 6,
+    RequestInitialSettings: 7,
+    UIInteraction: 50,
+    Command: 51,
+    KeyDown: 60,
+    KeyUp: 61,
+    KeyPress: 62,
+    MouseEnter: 70,
+    MouseLeave: 71,
+    MouseDown: 72,
+    MouseUp: 73,
+    MouseMove: 74,
+    MouseWheel: 75,
+    TouchStart: 80,
+    TouchEnd: 81,
+    TouchMove: 82,
+    GamepadButtonPressed: 90,
+    GamepadButtonReleased: 91,
+    GamepadAnalog: 92,
+  }).current;
+
+  const sendInputData = useCallback((buffer: ArrayBuffer) => {
     const channel = dataChannelRef.current;
     if (channel && channel.readyState === 'open') {
       try {
-        channel.send(JSON.stringify(payload));
+        channel.send(buffer);
       } catch (error) {
         console.warn('发送输入事件失败：', error);
       }
     }
   }, []);
+
+  const emitDescriptor = useCallback(
+    (messageType: number, descriptor: Record<string, any>) => {
+      const descriptorAsString = JSON.stringify(descriptor);
+      const buffer = new ArrayBuffer(1 + 2 + descriptorAsString.length * 2);
+      const dataView = new DataView(buffer);
+      let byteIdx = 0;
+      dataView.setUint8(byteIdx, messageType);
+      byteIdx += 1;
+      dataView.setUint16(byteIdx, descriptorAsString.length, true);
+      byteIdx += 2;
+      for (let i = 0; i < descriptorAsString.length; i++) {
+        dataView.setUint16(byteIdx, descriptorAsString.charCodeAt(i), true);
+        byteIdx += 2;
+      }
+      sendInputData(buffer);
+    },
+    [sendInputData]
+  );
+
+  const normalizeAndQuantizeUnsigned = useCallback((x: number, y: number) => {
+    const clampedX = Math.min(Math.max(x, 0), 1);
+    const clampedY = Math.min(Math.max(y, 0), 1);
+    return {
+      x: Math.min(Math.floor(clampedX * 65535), 65535),
+      y: Math.min(Math.floor(clampedY * 65535), 65535),
+    };
+  }, []);
+
+  const normalizeAndQuantizeSigned = useCallback((x: number, y: number) => {
+    const clamp = (value: number) => Math.min(Math.max(value, -1), 1);
+    return {
+      x: Math.min(Math.floor(clamp(x) * 32767), 32767),
+      y: Math.min(Math.floor(clamp(y) * 32767), 32767),
+    };
+  }, []);
+
+  const emitMouseMove = useCallback(
+    (x: number, y: number, deltaX: number, deltaY: number) => {
+      const coord = normalizeAndQuantizeUnsigned(x, y);
+      const delta = normalizeAndQuantizeSigned(deltaX / 500, deltaY / 500);
+      const data = new DataView(new ArrayBuffer(9));
+      data.setUint8(0, MessageType.MouseMove);
+      data.setUint16(1, coord.x, true);
+      data.setUint16(3, coord.y, true);
+      data.setInt16(5, delta.x, true);
+      data.setInt16(7, delta.y, true);
+      sendInputData(data.buffer);
+    },
+    [MessageType.MouseMove, normalizeAndQuantizeSigned, normalizeAndQuantizeUnsigned, sendInputData]
+  );
+
+  const emitMouseButton = useCallback(
+    (type: number, button: number, x: number, y: number) => {
+      const coord = normalizeAndQuantizeUnsigned(x, y);
+      const data = new DataView(new ArrayBuffer(6));
+      data.setUint8(0, type);
+      data.setUint8(1, button);
+      data.setUint16(2, coord.x, true);
+      data.setUint16(4, coord.y, true);
+      sendInputData(data.buffer);
+    },
+    [normalizeAndQuantizeUnsigned, sendInputData]
+  );
+
+  const emitMouseWheel = useCallback(
+    (x: number, y: number, deltaX: number, deltaY: number) => {
+      const coord = normalizeAndQuantizeUnsigned(x, y);
+      const delta = normalizeAndQuantizeSigned(deltaX / 120, deltaY / 120);
+      const data = new DataView(new ArrayBuffer(9));
+      data.setUint8(0, MessageType.MouseWheel);
+      data.setUint16(1, coord.x, true);
+      data.setUint16(3, coord.y, true);
+      data.setInt16(5, delta.x, true);
+      data.setInt16(7, delta.y, true);
+      sendInputData(data.buffer);
+    },
+    [MessageType.MouseWheel, normalizeAndQuantizeSigned, normalizeAndQuantizeUnsigned, sendInputData]
+  );
+
+  const emitKeyboard = useCallback(
+    (type: number, event: KeyboardEvent) => {
+      emitDescriptor(type, {
+        keyCode: event.code,
+        key: event.key,
+        repeat: event.repeat,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        metaKey: event.metaKey,
+      });
+    },
+    [emitDescriptor]
+  );
 
   const normalizePointer = (event: MouseEvent | WheelEvent) => {
     const rect = videoRef.current?.getBoundingClientRect();
@@ -121,44 +267,25 @@ export default function DevicePlayer() {
     const handleMouseMove = (event: MouseEvent) => {
       event.preventDefault();
       const { x, y } = normalizePointer(event);
-      sendInputMessage({
-        type: 'mouseMove',
-        position: { x, y },
-        delta: { x: event.movementX, y: event.movementY },
-        buttons: event.buttons,
-      });
+      emitMouseMove(x, y, event.movementX, event.movementY);
     };
 
     const handleMouseDown = (event: MouseEvent) => {
       event.preventDefault();
       const { x, y } = normalizePointer(event);
-      sendInputMessage({
-        type: 'mouseDown',
-        button: event.button,
-        position: { x, y },
-        buttons: event.buttons,
-      });
+      emitMouseButton(MessageType.MouseDown, event.button, x, y);
     };
 
     const handleMouseUp = (event: MouseEvent) => {
       event.preventDefault();
       const { x, y } = normalizePointer(event);
-      sendInputMessage({
-        type: 'mouseUp',
-        button: event.button,
-        position: { x, y },
-        buttons: event.buttons,
-      });
+      emitMouseButton(MessageType.MouseUp, event.button, x, y);
     };
 
     const handleMouseWheel = (event: WheelEvent) => {
       event.preventDefault();
       const { x, y } = normalizePointer(event);
-      sendInputMessage({
-        type: 'mouseWheel',
-        position: { x, y },
-        delta: { x: event.deltaX, y: event.deltaY },
-      });
+      emitMouseWheel(x, y, event.deltaX, event.deltaY);
     };
 
     const handleContextMenu = (event: MouseEvent) => {
@@ -168,34 +295,13 @@ export default function DevicePlayer() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!container.contains(document.activeElement)) return;
       event.preventDefault();
-      sendInputMessage({
-        type: 'keyDown',
-        key: event.key,
-        code: event.code,
-        repeat: event.repeat,
-        modifiers: {
-          altKey: event.altKey,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        },
-      });
+      emitKeyboard(MessageType.KeyDown, event);
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (!container.contains(document.activeElement)) return;
       event.preventDefault();
-      sendInputMessage({
-        type: 'keyUp',
-        key: event.key,
-        code: event.code,
-        modifiers: {
-          altKey: event.altKey,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        },
-      });
+      emitKeyboard(MessageType.KeyUp, event);
     };
 
     container.addEventListener('mousemove', handleMouseMove);
@@ -217,7 +323,7 @@ export default function DevicePlayer() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [sendInputMessage]);
+  }, [MessageType.KeyDown, MessageType.KeyUp, emitKeyboard, emitMouseButton, emitMouseMove, emitMouseWheel, normalizePointer]);
   useEffect(() => {
     if (!device && id) {
       (async () => {
@@ -251,6 +357,55 @@ export default function DevicePlayer() {
       })();
     }
   }, [device, id]);
+
+  const startStatsMonitor = useCallback(() => {
+    if (statsIntervalRef.current) {
+      window.clearInterval(statsIntervalRef.current);
+    }
+    statsIntervalRef.current = window.setInterval(async () => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        let framesPerSecond = 0;
+        let bytesReceived = 0;
+        let timestamp = 0;
+        stats.forEach((report) => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            packetsLost = report.packetsLost || 0;
+            packetsReceived = report.packetsReceived || 0;
+            framesPerSecond = report.framesPerSecond || framesPerSecond;
+            bytesReceived = report.bytesReceived || bytesReceived;
+            timestamp = report.timestamp || timestamp;
+          }
+        });
+        let bitrateKbps = networkStats.bitrateKbps;
+        if (previousVideoStatsRef.current && timestamp && bytesReceived) {
+          const timeDiff = (timestamp - previousVideoStatsRef.current.timestamp) / 1000;
+          const bytesDiff = bytesReceived - previousVideoStatsRef.current.bytesReceived;
+          if (timeDiff > 0 && bytesDiff >= 0) {
+            bitrateKbps = Math.max(0, (bytesDiff * 8) / 1000 / timeDiff);
+          }
+        }
+        if (timestamp && bytesReceived) {
+          previousVideoStatsRef.current = { timestamp, bytesReceived };
+        }
+        const packetLossRate =
+          packetsLost + packetsReceived > 0 ? packetsLost / (packetsLost + packetsReceived) : 0;
+        setNetworkStats({
+          packetsLost,
+          packetsReceived,
+          packetLossRate,
+          bitrateKbps,
+          framesPerSecond,
+        });
+      } catch (error) {
+        console.warn('获取 WebRTC 统计信息失败：', error);
+      }
+    }, 2000);
+  }, [networkStats.bitrateKbps]);
 
   useEffect(() => {
     const startWebRTC = async () => {
@@ -297,6 +452,7 @@ export default function DevicePlayer() {
         console.log('WebRTC 连接状态：', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setStatusText('播放中');
+         // startStatsMonitor();
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           setStatusText('连接已断开');
           message.error('WebRTC 连接中断');
@@ -352,7 +508,7 @@ export default function DevicePlayer() {
     if (device && !loading) {
       startWebRTC();
     }
-  }, [device, loading]);
+  }, [device, loading, startStatsMonitor]);
 
   if (loading || !device) {
     return (
@@ -393,6 +549,7 @@ export default function DevicePlayer() {
               overflow: 'hidden',
               outline: 'none',
               cursor: 'crosshair',
+              position: 'relative',
             }}
           >
             <video
@@ -405,6 +562,27 @@ export default function DevicePlayer() {
                 background: '#000',
               }}
             />
+            {networkStats && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
+                  background: 'rgba(0,0,0,0.55)',
+                  color: '#fff',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  pointerEvents: 'none',
+                }}
+              >
+                <div>丢包率：{(networkStats.packetLossRate * 100).toFixed(2)}%</div>
+                <div>丢包数：{networkStats.packetsLost}</div>
+                <div>码率：{networkStats.bitrateKbps.toFixed(1)} kbps</div>
+                <div>FPS：{networkStats.framesPerSecond.toFixed(1)}</div>
+              </div>
+            )}
           </div>
           <Paragraph style={{ marginTop: 16 }}>
             <Text type="secondary">播放状态：</Text>
