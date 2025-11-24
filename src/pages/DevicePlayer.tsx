@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button, Card, Space, Tag, Typography, message, Spin } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ExpandOutlined, CompressOutlined } from '@ant-design/icons';
 import { deviceApi } from '@/utils/api';
 import { Device } from '@/types';
 
@@ -20,8 +20,11 @@ export default function DevicePlayer() {
   const [device, setDevice] = useState<Device | null>(initialDevice);
   const [loading, setLoading] = useState(!initialDevice);
   const [statusText, setStatusText] = useState<string>('等待播放...');
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
 
   const cleanup = () => {
     if (peerConnectionRef.current) {
@@ -34,6 +37,15 @@ export default function DevicePlayer() {
       }
       peerConnectionRef.current = null;
     }
+    if (dataChannelRef.current) {
+      try {
+        dataChannelRef.current.close();
+      } catch (error) {
+        console.warn('关闭 DataChannel 异常：', error);
+      }
+      dataChannelRef.current = null;
+    }
+
     if (videoRef.current) {
       const stream = videoRef.current.srcObject as MediaStream | null;
       stream?.getTracks().forEach((track) => track.stop());
@@ -47,6 +59,165 @@ export default function DevicePlayer() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fullscreenElement = document.fullscreenElement;
+      setIsFullscreen(fullscreenElement === videoContainerRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const container = videoContainerRef.current;
+    if (!container) {
+      return;
+    }
+    if (!document.fullscreenElement) {
+      container.requestFullscreen?.().catch((error) => {
+        console.error('进入全屏失败:', error);
+        message.error('进入全屏失败，请检查浏览器权限。');
+      });
+    } else if (document.fullscreenElement === container) {
+      document.exitFullscreen?.().catch((error) => {
+        console.error('退出全屏失败:', error);
+        message.error('退出全屏失败。');
+      });
+    } else {
+      document.exitFullscreen?.();
+    }
+  }, []);
+
+  const sendInputMessage = useCallback((payload: Record<string, any>) => {
+    const channel = dataChannelRef.current;
+    if (channel && channel.readyState === 'open') {
+      try {
+        channel.send(JSON.stringify(payload));
+      } catch (error) {
+        console.warn('发送输入事件失败：', error);
+      }
+    }
+  }, []);
+
+  const normalizePointer = (event: MouseEvent | WheelEvent) => {
+    const rect = videoRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: 0, y: 0 };
+    }
+    const x = Number((((event.clientX - rect.left) / rect.width)).toFixed(4));
+    const y = Number((((event.clientY - rect.top) / rect.height)).toFixed(4));
+    return {
+      x: Math.min(Math.max(x, 0), 1),
+      y: Math.min(Math.max(y, 0), 1),
+    };
+  };
+
+  useEffect(() => {
+    const container = videoContainerRef.current;
+    if (!container) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      event.preventDefault();
+      const { x, y } = normalizePointer(event);
+      sendInputMessage({
+        type: 'mouseMove',
+        position: { x, y },
+        delta: { x: event.movementX, y: event.movementY },
+        buttons: event.buttons,
+      });
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      event.preventDefault();
+      const { x, y } = normalizePointer(event);
+      sendInputMessage({
+        type: 'mouseDown',
+        button: event.button,
+        position: { x, y },
+        buttons: event.buttons,
+      });
+    };
+
+    const handleMouseUp = (event: MouseEvent) => {
+      event.preventDefault();
+      const { x, y } = normalizePointer(event);
+      sendInputMessage({
+        type: 'mouseUp',
+        button: event.button,
+        position: { x, y },
+        buttons: event.buttons,
+      });
+    };
+
+    const handleMouseWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const { x, y } = normalizePointer(event);
+      sendInputMessage({
+        type: 'mouseWheel',
+        position: { x, y },
+        delta: { x: event.deltaX, y: event.deltaY },
+      });
+    };
+
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!container.contains(document.activeElement)) return;
+      event.preventDefault();
+      sendInputMessage({
+        type: 'keyDown',
+        key: event.key,
+        code: event.code,
+        repeat: event.repeat,
+        modifiers: {
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+        },
+      });
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!container.contains(document.activeElement)) return;
+      event.preventDefault();
+      sendInputMessage({
+        type: 'keyUp',
+        key: event.key,
+        code: event.code,
+        modifiers: {
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+        },
+      });
+    };
+
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mousedown', handleMouseDown);
+    container.addEventListener('mouseup', handleMouseUp);
+    container.addEventListener('wheel', handleMouseWheel, { passive: false });
+    container.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    container.setAttribute('tabindex', '0');
+    container.focus();
+
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mousedown', handleMouseDown);
+      container.removeEventListener('mouseup', handleMouseUp);
+      container.removeEventListener('wheel', handleMouseWheel);
+      container.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [sendInputMessage]);
   useEffect(() => {
     if (!device && id) {
       (async () => {
@@ -97,6 +268,22 @@ export default function DevicePlayer() {
       peerConnectionRef.current = pc;
       const remoteStream = new MediaStream();
       videoRef.current.srcObject = remoteStream;
+
+      const channel = pc.createDataChannel('input');
+      dataChannelRef.current = channel;
+      channel.onopen = () => {
+        console.log('DataChannel 已连接');
+        setStatusText('数据通道已建立，等待流媒体...');
+      };
+      channel.onclose = () => {
+        console.log('DataChannel 已关闭');
+      };
+      channel.onerror = (event) => {
+        console.error('DataChannel 错误:', event);
+      };
+      channel.onmessage = (event) => {
+        console.log('收到 DataChannel 消息:', event.data);
+      };
 
       pc.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
@@ -188,21 +375,29 @@ export default function DevicePlayer() {
           <Tag color={device.status === 'online' ? 'green' : device.status === 'maintenance' ? 'orange' : 'default'}>
             {device.status === 'online' ? '在线' : device.status === 'maintenance' ? '维护中' : '离线'}
           </Tag>
+          <Button
+            icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? '退出全屏' : '全屏'}
+          </Button>
         </Space>
 
         <Card>
           <div
+            ref={videoContainerRef}
             style={{
               width: '100%',
               background: '#000',
               borderRadius: 12,
               overflow: 'hidden',
+              outline: 'none',
+              cursor: 'crosshair',
             }}
           >
             <video
               ref={videoRef}
               autoPlay
-              controls
               playsInline
               style={{
                 width: '100%',
