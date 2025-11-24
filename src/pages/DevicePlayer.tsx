@@ -30,18 +30,51 @@ export default function DevicePlayer() {
     timestamp: number;
     bytesReceived: number;
   } | null>(null);
+  const lastBitrateRef = useRef(0);
+  const [inputEnabled, setInputEnabled] = useState(true);
+  const inputEnabledRef = useRef(true);
   const [networkStats, setNetworkStats] = useState<{
     packetsLost: number;
     packetsReceived: number;
     packetLossRate: number;
     bitrateKbps: number;
     framesPerSecond: number;
+    latencyMs: number;
+    decodeLatencyMs: number;
+    renderLatencyMs: number;
+    jitterMs: number;
+    framesDecoded: number;
+    framesDropped: number;
+    keyFramesDecoded: number;
+    firCount: number;
+    pliCount: number;
+    nackCount: number;
+    qpSum: number;
+    codec: string;
+    totalBytesMB: number;
+    availableIncomingBitrate: number;
+    availableOutgoingBitrate: number;
   }>({
     packetsLost: 0,
     packetsReceived: 0,
     packetLossRate: 0,
     bitrateKbps: 0,
     framesPerSecond: 0,
+    latencyMs: 0,
+    decodeLatencyMs: 0,
+    renderLatencyMs: 0,
+    jitterMs: 0,
+    framesDecoded: 0,
+    framesDropped: 0,
+    keyFramesDecoded: 0,
+    firCount: 0,
+    pliCount: 0,
+    nackCount: 0,
+    qpSum: 0,
+    codec: '',
+    totalBytesMB: 0,
+    availableIncomingBitrate: 0,
+    availableOutgoingBitrate: 0,
   });
 
   const cleanup = () => {
@@ -114,6 +147,19 @@ export default function DevicePlayer() {
     }
   }, []);
 
+  const toggleInputForwarding = useCallback(() => {
+    setInputEnabled((prev) => {
+      const next = !prev;
+      inputEnabledRef.current = next;
+      if (next) {
+        message.success('已恢复发送键鼠事件');
+      } else {
+        message.warning('已禁止发送键鼠事件');
+      }
+      return next;
+    });
+  }, []);
+
   const MessageType = useRef({
     IFrameRequest: 0,
     RequestQualityControl: 1,
@@ -142,16 +188,22 @@ export default function DevicePlayer() {
     GamepadAnalog: 92,
   }).current;
 
-  const sendInputData = useCallback((buffer: ArrayBuffer) => {
-    const channel = dataChannelRef.current;
-    if (channel && channel.readyState === 'open') {
-      try {
-        channel.send(buffer);
-      } catch (error) {
-        console.warn('发送输入事件失败：', error);
+  const sendInputData = useCallback(
+    (buffer: ArrayBuffer) => {
+      if (!inputEnabledRef.current) {
+        return;
       }
-    }
-  }, []);
+      const channel = dataChannelRef.current;
+      if (channel && channel.readyState === 'open') {
+        try {
+          channel.send(buffer);
+        } catch (error) {
+          console.warn('发送输入事件失败：', error);
+        }
+      }
+    },
+    []
+  );
 
   const emitDescriptor = useCallback(
     (messageType: number, descriptor: Record<string, any>) => {
@@ -265,24 +317,28 @@ export default function DevicePlayer() {
     if (!container) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (!inputEnabledRef.current) return;
       event.preventDefault();
       const { x, y } = normalizePointer(event);
       emitMouseMove(x, y, event.movementX, event.movementY);
     };
 
     const handleMouseDown = (event: MouseEvent) => {
+      if (!inputEnabledRef.current) return;
       event.preventDefault();
       const { x, y } = normalizePointer(event);
       emitMouseButton(MessageType.MouseDown, event.button, x, y);
     };
 
     const handleMouseUp = (event: MouseEvent) => {
+      if (!inputEnabledRef.current) return;
       event.preventDefault();
       const { x, y } = normalizePointer(event);
       emitMouseButton(MessageType.MouseUp, event.button, x, y);
     };
 
     const handleMouseWheel = (event: WheelEvent) => {
+      if (!inputEnabledRef.current) return;
       event.preventDefault();
       const { x, y } = normalizePointer(event);
       emitMouseWheel(x, y, event.deltaX, event.deltaY);
@@ -293,13 +349,13 @@ export default function DevicePlayer() {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!container.contains(document.activeElement)) return;
+      if (!container.contains(document.activeElement) || !inputEnabledRef.current) return;
       event.preventDefault();
       emitKeyboard(MessageType.KeyDown, event);
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (!container.contains(document.activeElement)) return;
+      if (!container.contains(document.activeElement) || !inputEnabledRef.current) return;
       event.preventDefault();
       emitKeyboard(MessageType.KeyUp, event);
     };
@@ -367,11 +423,33 @@ export default function DevicePlayer() {
       if (!pc) return;
       try {
         const stats = await pc.getStats();
+        const codecMap = new Map<string, string>();
+        stats.forEach((report) => {
+          if (report.type === 'codec') {
+            const labelParts = [report.mimeType, report.sdpFmtpLine].filter(Boolean);
+            codecMap.set(report.id, labelParts.join(' ') || `payload:${report.payloadType}`);
+          }
+        });
         let packetsLost = 0;
         let packetsReceived = 0;
         let framesPerSecond = 0;
         let bytesReceived = 0;
         let timestamp = 0;
+        let framesDecoded = 0;
+        let totalDecodeTime = 0;
+        let totalInterFrameDelay = 0;
+        let latencyMs = 0;
+        let jitterMs = 0;
+        let framesDropped = 0;
+        let keyFramesDecoded = 0;
+        let firCount = 0;
+        let pliCount = 0;
+        let nackCount = 0;
+        let qpSum = 0;
+        let codec = '';
+        let availableIncomingBitrate = 0;
+        let availableOutgoingBitrate = 0;
+        let totalBytesMB = 0;
         stats.forEach((report) => {
           if (report.type === 'inbound-rtp' && report.kind === 'video') {
             packetsLost = report.packetsLost || 0;
@@ -379,9 +457,51 @@ export default function DevicePlayer() {
             framesPerSecond = report.framesPerSecond || framesPerSecond;
             bytesReceived = report.bytesReceived || bytesReceived;
             timestamp = report.timestamp || timestamp;
+            if (typeof report.jitter === 'number') {
+              jitterMs = Math.max(jitterMs, report.jitter * 1000);
+            }
+            framesDecoded = report.framesDecoded || framesDecoded;
+            framesDropped = report.framesDropped || framesDropped;
+            keyFramesDecoded = report.keyFramesDecoded || keyFramesDecoded;
+            firCount = report.firCount || firCount;
+            pliCount = report.pliCount || pliCount;
+            nackCount = report.nackCount || nackCount;
+            qpSum = report.qpSum || qpSum;
+            if (!codec && report.codecId) {
+              codec = codecMap.get(report.codecId) || codec;
+            }
+          } else if (report.type === 'remote-inbound-rtp' && report.kind === 'video') {
+            if (typeof report.roundTripTime === 'number') {
+              latencyMs = Math.max(latencyMs, report.roundTripTime * 1000);
+            }
+          } else if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+            if (typeof report.currentRoundTripTime === 'number') {
+              latencyMs = Math.max(latencyMs, report.currentRoundTripTime * 1000);
+            }
+            if (typeof report.availableIncomingBitrate === 'number') {
+              availableIncomingBitrate = report.availableIncomingBitrate / 1000;
+            }
+            if (typeof report.availableOutgoingBitrate === 'number') {
+              availableOutgoingBitrate = report.availableOutgoingBitrate / 1000;
+            }
+          } else if (report.type === 'transport') {
+            if (typeof report.bytesReceived === 'number') {
+              totalBytesMB = report.bytesReceived / 1024 / 1024;
+            }
+            if (typeof report.availableIncomingBitrate === 'number') {
+              availableIncomingBitrate = report.availableIncomingBitrate / 1000;
+            }
+            if (typeof report.availableOutgoingBitrate === 'number') {
+              availableOutgoingBitrate = report.availableOutgoingBitrate / 1000;
+            }
+          } else if (report.type === 'track' && (report as any).kind === 'video') {
+            framesDecoded = report.framesDecoded || framesDecoded;
+            totalDecodeTime = report.totalDecodeTime || totalDecodeTime;
+            totalInterFrameDelay = (report as any).totalInterFrameDelay || totalInterFrameDelay;
+            framesDropped = report.framesDropped || framesDropped;
           }
         });
-        let bitrateKbps = networkStats.bitrateKbps;
+        let bitrateKbps = lastBitrateRef.current;
         if (previousVideoStatsRef.current && timestamp && bytesReceived) {
           const timeDiff = (timestamp - previousVideoStatsRef.current.timestamp) / 1000;
           const bytesDiff = bytesReceived - previousVideoStatsRef.current.bytesReceived;
@@ -391,21 +511,46 @@ export default function DevicePlayer() {
         }
         if (timestamp && bytesReceived) {
           previousVideoStatsRef.current = { timestamp, bytesReceived };
+          totalBytesMB = bytesReceived / 1024 / 1024;
         }
+        lastBitrateRef.current = bitrateKbps;
         const packetLossRate =
           packetsLost + packetsReceived > 0 ? packetsLost / (packetsLost + packetsReceived) : 0;
+        const decodeLatencyMs =
+          framesDecoded > 0 && totalDecodeTime
+            ? Math.max(0, (totalDecodeTime / framesDecoded) * 1000)
+            : 0;
+        const renderLatencyMs =
+          framesDecoded > 0 && totalInterFrameDelay
+            ? Math.max(0, (totalInterFrameDelay / framesDecoded) * 1000)
+            : 0;
         setNetworkStats({
           packetsLost,
           packetsReceived,
           packetLossRate,
           bitrateKbps,
           framesPerSecond,
+          latencyMs,
+          decodeLatencyMs,
+          renderLatencyMs,
+          jitterMs,
+          framesDecoded,
+          framesDropped,
+          keyFramesDecoded,
+          firCount,
+          pliCount,
+          nackCount,
+          qpSum,
+          codec,
+          totalBytesMB,
+          availableIncomingBitrate,
+          availableOutgoingBitrate,
         });
       } catch (error) {
         console.warn('获取 WebRTC 统计信息失败：', error);
       }
     }, 2000);
-  }, [networkStats.bitrateKbps]);
+  }, []);
 
   useEffect(() => {
     const startWebRTC = async () => {
@@ -452,7 +597,7 @@ export default function DevicePlayer() {
         console.log('WebRTC 连接状态：', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setStatusText('播放中');
-         // startStatsMonitor();
+          startStatsMonitor();
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           setStatusText('连接已断开');
           message.error('WebRTC 连接中断');
@@ -531,6 +676,9 @@ export default function DevicePlayer() {
           <Tag color={device.status === 'online' ? 'green' : device.status === 'maintenance' ? 'orange' : 'default'}>
             {device.status === 'online' ? '在线' : device.status === 'maintenance' ? '维护中' : '离线'}
           </Tag>
+          <Button onClick={toggleInputForwarding}>
+            {inputEnabled ? '禁止键鼠输入' : '恢复键鼠输入'}
+          </Button>
           <Button
             icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
             onClick={toggleFullscreen}
@@ -581,6 +729,26 @@ export default function DevicePlayer() {
                 <div>丢包数：{networkStats.packetsLost}</div>
                 <div>码率：{networkStats.bitrateKbps.toFixed(1)} kbps</div>
                 <div>FPS：{networkStats.framesPerSecond.toFixed(1)}</div>
+                <div>延迟：{networkStats.latencyMs.toFixed(1)} ms</div>
+                <div>解码延迟：{networkStats.decodeLatencyMs.toFixed(2)} ms</div>
+                <div>渲染延迟：{networkStats.renderLatencyMs.toFixed(2)} ms</div>
+                <div>抖动：{networkStats.jitterMs.toFixed(2)} ms</div>
+                <div>解码帧：{networkStats.framesDecoded}</div>
+                <div>丢帧：{networkStats.framesDropped}</div>
+                <div>关键帧：{networkStats.keyFramesDecoded}</div>
+                <div>FIR/PLI/NACK：{networkStats.firCount}/{networkStats.pliCount}/{networkStats.nackCount}</div>
+                <div>QP 累积：{networkStats.qpSum}</div>
+                <div>
+                  可用带宽(下/上)：{networkStats.availableIncomingBitrate.toFixed(1)} /
+                  {networkStats.availableOutgoingBitrate.toFixed(1)} kbps
+                </div>
+                <div>总接收：{networkStats.totalBytesMB.toFixed(2)} MB</div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span>解码器：</span>
+                  <span style={{ flex: 1, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {networkStats.codec || '未知'}
+                  </span>
+                </div>
               </div>
             )}
           </div>
