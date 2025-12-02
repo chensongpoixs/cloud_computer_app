@@ -31,8 +31,8 @@ export default function DevicePlayer() {
     bytesReceived: number;
   } | null>(null);
   const lastBitrateRef = useRef(0);
-  const [inputEnabled, setInputEnabled] = useState(true);
-  const inputEnabledRef = useRef(true);
+  const [inputEnabled, setInputEnabled] = useState(false);
+  const inputEnabledRef = useRef(false);
   const [networkStats, setNetworkStats] = useState<{
     packetsLost: number;
     packetsReceived: number;
@@ -677,7 +677,7 @@ export default function DevicePlayer() {
             {device.status === 'online' ? '在线' : device.status === 'maintenance' ? '维护中' : '离线'}
           </Tag>
           <Button onClick={toggleInputForwarding}>
-            {inputEnabled ? '禁止键鼠输入' : '恢复键鼠输入'}
+            {inputEnabled ? '禁止键鼠输入' : '允许键鼠输入'}
           </Button>
           <Button
             icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
