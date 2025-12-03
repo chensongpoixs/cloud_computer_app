@@ -33,7 +33,7 @@ export default function DevicePlayer() {
   const lastBitrateRef = useRef(0);
   const [inputEnabled, setInputEnabled] = useState(false);
   const inputEnabledRef = useRef(false);
-  const [networkStats, setNetworkStats] = useState<{
+  const [_networkStats, setNetworkStats] = useState<{
     packetsLost: number;
     packetsReceived: number;
     packetLossRate: number;
@@ -710,47 +710,8 @@ export default function DevicePlayer() {
                 background: '#000',
               }}
             />
-            {networkStats && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 12,
-                  right: 12,
-                  background: 'rgba(0,0,0,0.55)',
-                  color: '#fff',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  lineHeight: 1.5,
-                  pointerEvents: 'none',
-                }}
-              >
-                <div>丢包率：{(networkStats.packetLossRate * 100).toFixed(2)}%</div>
-                <div>丢包数：{networkStats.packetsLost}</div>
-                <div>码率：{networkStats.bitrateKbps.toFixed(1)} kbps</div>
-                <div>FPS：{networkStats.framesPerSecond.toFixed(1)}</div>
-                <div>延迟：{networkStats.latencyMs.toFixed(1)} ms</div>
-                <div>解码延迟：{networkStats.decodeLatencyMs.toFixed(2)} ms</div>
-                <div>渲染延迟：{networkStats.renderLatencyMs.toFixed(2)} ms</div>
-                <div>抖动：{networkStats.jitterMs.toFixed(2)} ms</div>
-                <div>解码帧：{networkStats.framesDecoded}</div>
-                <div>丢帧：{networkStats.framesDropped}</div>
-                <div>关键帧：{networkStats.keyFramesDecoded}</div>
-                <div>FIR/PLI/NACK：{networkStats.firCount}/{networkStats.pliCount}/{networkStats.nackCount}</div>
-                <div>QP 累积：{networkStats.qpSum}</div>
-                <div>
-                  可用带宽(下/上)：{networkStats.availableIncomingBitrate.toFixed(1)} /
-                  {networkStats.availableOutgoingBitrate.toFixed(1)} kbps
-                </div>
-                <div>总接收：{networkStats.totalBytesMB.toFixed(2)} MB</div>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span>解码器：</span>
-                  <span style={{ flex: 1, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {networkStats.codec || '未知'}
-                  </span>
-                </div>
-              </div>
-            )}
+            
+           
           </div>
           <Paragraph style={{ marginTop: 16 }}>
             <Text type="secondary">播放状态：</Text>

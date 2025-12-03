@@ -5,7 +5,6 @@ import {
   SafetyCertificateOutlined,
   CloudOutlined,
   CustomerServiceOutlined,
-  DeploymentUnitOutlined,
   CloudDownloadOutlined,
   AppstoreOutlined,
   ShareAltOutlined,

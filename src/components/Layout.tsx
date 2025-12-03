@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Layout as AntLayout, Menu, Avatar, Dropdown, Button } from 'antd';
+import { Layout as AntLayout, Menu, Avatar, Dropdown } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DesktopOutlined,
@@ -16,7 +16,7 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuthStore();
+  const { logout } = useAuthStore();
 
   const menuItems = [
     {
@@ -133,23 +133,36 @@ export default function Layout() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <Avatar
+              <div
                 style={{
-                  backgroundColor: '#0071e3',
                   cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 8px rgba(0, 113, 227, 0.2)',
+                  display: 'inline-block',
                 }}
-                icon={<UserOutlined />}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'scale(1.1)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 113, 227, 0.3)';
+                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                  const avatar = e.currentTarget.querySelector('.ant-avatar') as HTMLElement;
+                  if (avatar) {
+                    avatar.style.transform = 'scale(1.1)';
+                    avatar.style.boxShadow = '0 4px 12px rgba(0, 113, 227, 0.3)';
+                  }
                 }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
-                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 113, 227, 0.2)';
+                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                  const avatar = e.currentTarget.querySelector('.ant-avatar') as HTMLElement;
+                  if (avatar) {
+                    avatar.style.transform = 'scale(1)';
+                    avatar.style.boxShadow = '0 2px 8px rgba(0, 113, 227, 0.2)';
+                  }
                 }}
-              />
+              >
+                <Avatar
+                  style={{
+                    backgroundColor: '#0071e3',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 8px rgba(0, 113, 227, 0.2)',
+                  }}
+                  icon={<UserOutlined />}
+                />
+              </div>
             </Dropdown>
           </div>
         </Header>

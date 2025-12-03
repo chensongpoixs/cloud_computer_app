@@ -93,7 +93,7 @@ export default function DeviceDetail() {
           <Descriptions.Item label="IP地址">{device.ip}</Descriptions.Item>
           <Descriptions.Item label="状态">{getStatusTag(device.status)}</Descriptions.Item>
 
-          {device.cpu && (
+          {device.cpu && typeof device.cpu === 'object' && (
             <>
               <Descriptions.Item label="CPU型号">{device.cpu.model || 'N/A'}</Descriptions.Item>
               <Descriptions.Item label="CPU核心数">{device.cpu.cores || 'N/A'}</Descriptions.Item>
@@ -101,8 +101,11 @@ export default function DeviceDetail() {
               <Descriptions.Item label="CPU频率">{device.cpu.frequency || 'N/A'}</Descriptions.Item>
             </>
           )}
+          {device.cpu && typeof device.cpu === 'string' && (
+            <Descriptions.Item label="CPU">{device.cpu}</Descriptions.Item>
+          )}
 
-          {device.memory && (
+          {device.memory && typeof device.memory === 'object' && (
             <>
               <Descriptions.Item label="总内存">
                 {device.memory.total_gb ? `${device.memory.total_gb} GB` : 'N/A'}
@@ -112,6 +115,9 @@ export default function DeviceDetail() {
               </Descriptions.Item>
             </>
           )}
+          {device.memory && typeof device.memory === 'string' && (
+            <Descriptions.Item label="内存">{device.memory}</Descriptions.Item>
+          )}
 
           {device.motherboard && (
             <>
@@ -120,15 +126,18 @@ export default function DeviceDetail() {
             </>
           )}
 
-          {device.os && (
+          {device.os && typeof device.os === 'object' && (
             <>
               <Descriptions.Item label="操作系统类型">{device.os.type || 'N/A'}</Descriptions.Item>
               <Descriptions.Item label="操作系统版本">{device.os.version || 'N/A'}</Descriptions.Item>
               <Descriptions.Item label="系统架构">{device.os.arch || 'N/A'}</Descriptions.Item>
             </>
           )}
+          {device.os && typeof device.os === 'string' && (
+            <Descriptions.Item label="操作系统">{device.os}</Descriptions.Item>
+          )}
 
-          {device.disk && device.disk.length > 0 && (
+          {device.disk && Array.isArray(device.disk) && device.disk.length > 0 && (
             <Descriptions.Item label="硬盘信息" span={2}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {device.disk.map((disk, index) => (
@@ -141,6 +150,9 @@ export default function DeviceDetail() {
                 ))}
               </div>
             </Descriptions.Item>
+          )}
+          {device.disk && typeof device.disk === 'string' && (
+            <Descriptions.Item label="硬盘">{device.disk}</Descriptions.Item>
           )}
 
           <Descriptions.Item label="创建时间">

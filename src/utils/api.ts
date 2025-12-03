@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Device, DeviceDetail, User } from '@/types';
+import { Device, DeviceDetail, User, UserDevice } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.9.172:5000/api/v1';
 
@@ -20,22 +20,34 @@ api.interceptors.request.use((config) => {
 // 响应拦截器
 api.interceptors.response.use(
   (response) => {
+    console.log('[API Interceptor] 原始响应对象:', response);
+    console.log('[API Interceptor] 响应类型:', typeof response);
+    console.log('[API Interceptor] response.data:', response.data);
+    console.log('[API Interceptor] response.data 类型:', typeof response.data);
+    
     const data = response.data;
+    console.log('[API Interceptor] 提取的 data:', data);
+    
     if (data && typeof data === 'object' && 'code' in data) {
+      console.log('[API Interceptor] data 包含 code 字段，code 值:', data.code);
       // code: 0 表示成功（用于统一响应格式）
       // code: 200 或 201 也表示成功（用于传统响应格式）
       if (data.code === 0 || data.code === 200 || data.code === 201) {
+        console.log('[API Interceptor] 返回成功数据:', data);
         return data as any;
       } else if (data.code === 401) {
+        console.log('[API Interceptor] 401 未授权错误');
         const error: any = new Error(data.message || '未授权');
         error.response = { status: 401, data };
         return Promise.reject(error);
       } else {
+        console.log('[API Interceptor] 其他错误 code:', data.code);
         // 对于其他非零 code，也返回数据，让调用方自己判断
         // 因为后端统一返回 HTTP 200，错误信息在 code 字段中
         return data as any;
       }
     }
+    console.log('[API Interceptor] data 不包含 code 字段，直接返回 data:', data);
     return data;
   },
   (error) => {
@@ -99,7 +111,8 @@ export const deviceApi = {
   getDevices: async (params?: { page?: number; pageSize?: number; status?: string; my_devices_only?: boolean }) => {
     try {
       const response = await api.get<{ code: number; message: string; list: Device[]; total: number }>('/devices', { params });
-      return response as { code: number; message: string; list: Device[]; total: number };
+      const data = response.data || response;
+      return data as { code: number; message: string; list: Device[]; total: number };
     } catch (error: any) {
       // 如果是401错误，让拦截器处理
       if (error.response?.status === 401) {
@@ -114,7 +127,8 @@ export const deviceApi = {
   getDevice: async (id: string) => {
     try {
       const response = await api.get<DeviceDetail & { code: number; message: string }>(`/devices/${id}`);
-      return response as DeviceDetail & { code: number; message: string };
+      const data = response.data || response;
+      return data as DeviceDetail & { code: number; message: string };
     } catch (error: any) {
       if (error.response?.status === 401) {
         throw error;
@@ -138,7 +152,8 @@ export const userDeviceApi = {
   getMyDevices: async () => {
     try {
       const response = await api.get<{ code: number; message: string; list: UserDevice[] }>('/user-devices/my-devices');
-      return response as { code: number; message: string; list: UserDevice[] };
+      const data = response.data || response;
+      return data as { code: number; message: string; list: UserDevice[] };
     } catch (error: any) {
       if (error.response?.status === 401) {
         throw error;
@@ -156,7 +171,8 @@ export const userDeviceApi = {
         password: password,
       });
       // 响应拦截器返回的已经是 data 对象，直接返回
-      return response as { code: number; message: string; data?: any };
+      const data = response.data || response;
+      return data as { code: number; message: string; data?: any };
     } catch (error: any) {
       if (error.response?.status === 401) {
         throw error;
@@ -177,7 +193,8 @@ export const userDeviceApi = {
   unassociateDevice: async (userDeviceId: string) => {
     try {
       const response = await api.delete<{ code: number; message: string }>(`/user-devices/${userDeviceId}`);
-      return response as { code: number; message: string };
+      const data = response.data || response;
+      return data as { code: number; message: string };
     } catch (error: any) {
       if (error.response?.status === 401) {
         throw error;

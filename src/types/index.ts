@@ -47,20 +47,20 @@ export interface Device {
 }
 
 // 设备详情
-export interface DeviceDetail extends Device {
-  cpu?: {
+export interface DeviceDetail extends Omit<Device, 'cpu' | 'memory' | 'disk' | 'os'> {
+  cpu?: string | {
     model?: string;
     cores?: number;
     threads?: number;
     frequency?: string;
   };
-  memory?: {
+  memory?: string | {
     total?: number;
     available?: number;
     total_gb?: number;
     available_gb?: number;
   };
-  disk?: Array<{
+  disk?: string | Array<{
     device: string;
     total: number;
     available: number;
@@ -70,7 +70,7 @@ export interface DeviceDetail extends Device {
     model?: string;
     manufacturer?: string;
   };
-  os?: {
+  os?: string | {
     type?: string;
     version?: string;
     arch?: string;
